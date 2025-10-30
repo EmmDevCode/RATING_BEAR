@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:rive/rive.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
+import 'dart:async';
 
 class RateScreen extends StatefulWidget {
   const RateScreen({super.key});
@@ -10,10 +11,56 @@ class RateScreen extends StatefulWidget {
 }
 class _RateScreenState extends State<RateScreen> {
 StateMachineController? controller;
+SMIBool? isHandsUp;
   SMIBool? isChecking;
   SMITrigger? trigSuccess;
   SMITrigger? trigFail;
   SMINumber? numLook; 
+  
+  Timer? _gazeResetTimer; // Timer para reinicar la mirada
+  Timer? _reactionTimer; // Dispara "fail" o "success" después de un retraso
+
+  double _getLookValue(double rating) { //convertir calificacion en mirada
+    return ((rating - 1) / 4) * 80;
+  }
+
+  void _onRatingChanged(double rating) {
+    // cancela cualquier timer activo
+  _gazeResetTimer?.cancel();
+  _reactionTimer?.cancel();
+
+  
+  isHandsUp?.change(false);
+
+  //Ejecutar animación asincrónica
+  Future.delayed(Duration.zero, () async { 
+    if (!mounted) return; //evita errores si el widget fue destruido
+
+    final lookValue = _getLookValue(rating);
+
+    // Mira directamente a la estrella seleccionada
+    isChecking?.change(true);
+    numLook?.value = lookValue;
+
+    await Future.delayed(const Duration(seconds: 0)); // Permitir que la animación de mirada comience
+
+    //Reacción 
+    if (rating <= 2.0) {
+      trigFail?.fire();
+    } else if (rating >= 4.0) {
+      trigSuccess?.fire();
+    }
+
+    //Esperar a que termine la animación 
+    await Future.delayed(const Duration(seconds: 4));
+
+    if (!mounted) return;
+
+    //Asegurar mirada final en la estrella seleccionada 
+    isChecking?.change(true);
+    numLook?.value = lookValue;
+  });
+}
 
 @override 
  Widget build(BuildContext context) {
@@ -29,7 +76,26 @@ StateMachineController? controller;
                 width: size.width,
                 height: 200,
                 child: RiveAnimation.asset(
-                  'assets/animated_login_character.riv'
+                  'assets/animated_login_character.riv',
+                  stateMachines: ["Login Machine"],
+                  onInit: (artboard) {
+                    controller = StateMachineController.fromArtboard(
+                      artboard,
+                      "Login Machine",
+                    );
+                    if (controller == null) return;
+                    artboard.addController(controller!);
+                    isChecking = controller!.findSMI<SMIBool>('isChecking');
+                    isHandsUp = controller!.findSMI<SMIBool>('isHandsUp');
+                    trigSuccess = controller!.findSMI('trigSuccess');
+                    trigFail = controller!.findSMI('trigFail');
+                    numLook = controller!.findSMI('numLook');
+
+                    // Estado inicial neutral
+                    isHandsUp?.change(false);
+                    isChecking?.change(false);
+                    numLook?.value = 50.0;
+                  },
                 )
            ),
            const SizedBox(height: 20),
@@ -56,7 +122,6 @@ StateMachineController? controller;
               initialRating: 0,
               minRating: 1,
               direction: Axis.horizontal,
-              allowHalfRating: true,
               itemCount: 5,
               itemPadding: const EdgeInsets.symmetric(horizontal: 4.0),
               itemBuilder: (context, _) => const Icon(
@@ -64,7 +129,7 @@ StateMachineController? controller;
                 color: Colors.amber
               ),
               onRatingUpdate: (rating) {
-                print(rating); 
+                _onRatingChanged(rating); 
               },
             ),
             const SizedBox(height: 20),
@@ -89,7 +154,7 @@ StateMachineController? controller;
                 ),
               ),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
              MaterialButton(
               onPressed: () {},
               shape: RoundedRectangleBorder(
@@ -117,39 +182,13 @@ StateMachineController? controller;
     );
  }
   
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  //liberar memoria 
+  @override
+  void dispose() {
+    controller?.dispose();
+    _gazeResetTimer?.cancel();
+    _reactionTimer?.cancel();
+    super.dispose();
+  }
 
 }
